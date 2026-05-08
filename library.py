@@ -383,8 +383,26 @@ def report_inventory(conn):
 # Main Loop
 # ----------------------------------------------------------
 
-# REDO WHEN ADDING LOGIN SYSTEM
+def login(conn):
+	print("\n===== Login =====")
+	username = read_nonempty("Username: ")
+	password = read_nonempty("Password: ")
+	
+	sql = "SELECT user_id, username, role FROM Users WHERE username = ? AND password = ?;"
+	cur = conn.cursor()
+	cur.execute(sql, (username, password))
+	user = cur.fetchone()
+	
+	if user:
+		user_id, username, role = user
+		print (f"\n Login successful. Welcome, {username}. Role :{role}\n")
+		return role
+		
+	print("Invalid username or password.\n")
+	return None
+	
 def main():
+	
 	# MAIN PROGRAM LOOP
 	try:
 		conn = get_connection()
@@ -392,7 +410,12 @@ def main():
 	except Error as e:
 		print(f"Connection failed: {e}")
 		return
+	# LOGIN
+	role = None
+	while role is None:
+		role = login(conn)
 		
+	# MENU
 	while True:
 		show_menu()
 		
