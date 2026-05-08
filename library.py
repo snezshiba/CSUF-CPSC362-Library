@@ -1,5 +1,6 @@
 import sqlite3
 from sqlite3 import Error
+from datetime import datetime
 
 DB_NAME = "library.db"
 
@@ -99,11 +100,14 @@ def show_menu():
 	print("8. Return Book")
 	print("9. Place Reservation")
 	print("10. Cancel Reservation")
-	print("11. Pay Fine")
-	print("12. Report - Overdue Books")
-	print("13. Report - Popular Books")
-	print("14. Report Inventory List")
-	print("15. Exit")
+	print("11. View Loans")
+	print("12. View Members")
+	print("13. View Fines")
+	print("14. Pay Fine")
+	print("15. Report - Overdue Books")
+	print("16. Report - Popular Books")
+	print("17. Report Inventory List")
+	print("18. Exit")
 	print(" ========================= ")
 	
 # ----------------------------------------------------------
@@ -114,10 +118,17 @@ def add_user(conn):
 	# CREATE NEW USER
 	username = read_nonempty("Username: ")
 	password = read_nonempty("Password: ")
-	role = read_nonempty("Role (Admin/Librarian/Member): ")
 	
+	role = read_nonempty("Role (admin/librarian/member): ").lower()
+	
+	if role not in ["admin", "librarian", "member"]:
+		print("Invalid role. MUST be admin, librarian, or member (in lowercase).\n")
+		return
+		
 	sql = "INSERT INTO Users (username, password, role) VALUES (?, ?, ?);"
 	execute_non_query(conn, sql, (username, password, role))
+	
+	
 	
 def register_member(conn):
 	# REGISTERS MEMBER LINKED TO EXISTING USER
@@ -250,7 +261,7 @@ def return_book(conn):
 		
 		# GET BOOK ID FROM THE LOAN
 		cur.execute(
-			"SELECT book_id FROM Loans WHERE loan_id = ? AND status = 'checked_out';",
+			"SELECT book_id, due_date FROM Loans WHERE loan_id = ? AND status = 'checked_out';",
 			(loan_id,)
 		)
 		row = cur.fetchone()
@@ -260,13 +271,35 @@ def return_book(conn):
 			print("Invalid or already returned.\n")
 			return
 		
-		book_id = row[0]
+		book_id, due_date = row
 		
 		# UPDATE LOAN
 		cur.execute(
 			"UPDATE Loans SET return_date = ?, status = 'returned' WHERE loan_id = ?;",
             (return_date, loan_id)
 		)
+		
+		# CALCULATE FINE
+		try:
+			due = datetime.strptime(due_date, "%Y-%m-%d")
+			returned = datetime.strptime(return_date, "%Y-%m-%d")
+		except ValueError: 
+			conn.rollback()
+			print("Invalid date format. Use YYYY-MM-DD.\n")
+			return
+			
+		days_late = (returned - due).days
+		
+		fine_per_day = 1.00
+		
+		if days_late > 0:
+			fine_amount = days_late * fine_per_day
+			
+			cur.execute(
+				"INSERT INTO Fines (loan_id, amount, paid) VALUES (?, ?, 0);", (loan_id, fine_amount)
+			)
+			
+			print(f"Late return. Fine added: ${fine_amount:.2f}")
 		
 		# RESTORE INVENTORY
 		cur.execute(
@@ -293,7 +326,25 @@ def cancel_res(conn):
 	reservation_id = read_int("Reservation ID: ")
 	
 	sql = "UPDATE Reservations SET status = 'cancelled' WHERE reservation_id = ?;"
-	execute_non_quert(conn, sql, (reservation_id,))
+	execute_non_query(conn, sql, (reservation_id,))
+	
+def view_loans(conn):
+	sql = "SELECT Loans.loan_id, Books.title, Members.fname, Members.lname, Loans.checkout_date, Loans.due_date, Loans.return_date, Loans.status \n FROM loans JOIN Books ON Loans.book_id = Books.book_id \n JOIN Members ON Loans.member_id = Members.member_id;"
+	
+	columns, rows = execute_query(conn, sql)
+	print_rows(columns, rows)
+	
+def view_members(conn):
+	sql = "SELECT Members.member_id, Members.user_id, Members.fname, Members.minit, Members.lname, Members.email, Members.phone, Members.address \n FROM Members \n ORDER BY Members.member_id;"
+	
+	columns, rows = execute_query(conn, sql)
+	print_rows(columns,rows)
+	
+def view_fines(conn):
+	sql = "SELECT Fines.fine_id, Loans.loan_id, Members.fname, Members.lname, Books.title, Loans.due_date, Loans.return_date, \n CAST(julianday(Loans.return_date) - julianday(Loans.due_date) AS INTEGER) AS days_late, Fines.amount AS amount_due, Fines.paid \n FROM Fines JOIN Loans ON Fines.loan_id = Loans.loan_id JOIN Books ON Loans.book_id = Books.book_id JOIN Members ON Loans.member_id = Members.member_id \n ORDER BY Fines.fine_id;"
+	
+	columns, rows = execute_query(conn, sql)
+	print_rows(columns, rows) 
 
 def pay_fine(conn):
 	# MARKS A FINE AS PAID
@@ -371,15 +422,21 @@ def main():
 			make_res(conn)
 		elif choice == 10:
 			cancel_res(conn)
-		elif choice == 11: 
-			pay_fine(conn)
+		elif choice == 11:
+			view_loans(conn)
 		elif choice == 12:
-			report_overdue(conn)
+			view_members(conn)
 		elif choice == 13:
-			report_popular(conn)
-		elif choice == 14:
-			report_inventory(conn)
+			view_fines(conn)
+		elif choice == 14: 
+			pay_fine(conn)
 		elif choice == 15:
+			report_overdue(conn)
+		elif choice == 16:
+			report_popular(conn)
+		elif choice == 17:
+			report_inventory(conn)
+		elif choice == 18:
 			print("Exiting...")
 			break
 		else:
